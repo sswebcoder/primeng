@@ -1,7 +1,6 @@
-import {NgModule,Component,Input,forwardRef,EventEmitter,Output} from '@angular/core';
+import {NgModule,Component,Input,forwardRef,EventEmitter,Output,ChangeDetectorRef,ChangeDetectionStrategy, ViewEncapsulation} from '@angular/core';
 import {CommonModule} from '@angular/common';
 import {NG_VALUE_ACCESSOR,ControlValueAccessor} from '@angular/forms';
-import {DomHandler} from '../dom/domhandler';
 
 export const INPUTSWITCH_VALUE_ACCESSOR: any = {
   provide: NG_VALUE_ACCESSOR,
@@ -12,16 +11,19 @@ export const INPUTSWITCH_VALUE_ACCESSOR: any = {
 @Component({
     selector: 'p-inputSwitch',
     template: `
-        <div [ngClass]="{'ui-inputswitch ui-widget': true, 'ui-inputswitch-checked': checked, 'ui-state-disabled': disabled, 'ui-inputswitch-focus': focused}" 
-            [ngStyle]="style" [class]="styleClass" (click)="onClick($event, cb)" role="checkbox" [attr.aria-checked]="checked">
-            <div class="ui-helper-hidden-accessible">
+        <div [ngClass]="{'p-inputswitch p-component': true, 'p-inputswitch-checked': checked, 'p-disabled': disabled, 'p-focus': focused}" 
+            [ngStyle]="style" [class]="styleClass" (click)="onClick($event, cb)">
+            <div class="p-hidden-accessible">
                 <input #cb type="checkbox" [attr.id]="inputId" [attr.name]="name" [attr.tabindex]="tabindex" [checked]="checked" (change)="onInputChange($event)"
-                        (focus)="onFocus($event)" (blur)="onBlur($event)" [disabled]="disabled" />
+                    (focus)="onFocus($event)" (blur)="onBlur($event)" [disabled]="disabled" role="switch" [attr.aria-checked]="checked" [attr.aria-labelledby]="ariaLabelledBy"/>
             </div>
-            <span class="ui-inputswitch-slider"></span>
+            <span class="p-inputswitch-slider"></span>
         </div>
     `,
-    providers: [INPUTSWITCH_VALUE_ACCESSOR,DomHandler]
+    providers: [INPUTSWITCH_VALUE_ACCESSOR],
+    changeDetection: ChangeDetectionStrategy.OnPush,
+    encapsulation: ViewEncapsulation.None,
+    styleUrls: ['./inputswitch.css']
 })
 export class InputSwitch implements ControlValueAccessor {
 
@@ -36,6 +38,10 @@ export class InputSwitch implements ControlValueAccessor {
     @Input() name: string;
 
     @Input() disabled: boolean;
+
+    @Input() readonly: boolean;
+
+    @Input() ariaLabelledBy: string;
     
     @Output() onChange: EventEmitter<any> = new EventEmitter();
 
@@ -47,23 +53,28 @@ export class InputSwitch implements ControlValueAccessor {
 
     onModelTouched: Function = () => {};
 
+    constructor(private cd: ChangeDetectorRef) {}
+
     onClick(event: Event, cb: HTMLInputElement) {
-        this.toggle(event);
-        cb.focus();
-    }
-
-    onInputChange(event: Event) {
-        const inputChecked = (<HTMLInputElement> event.target).checked;
-        this.updateModel(inputChecked);
-    }
-
-    toggle(event: Event) {
-        if (!this.disabled) {  
-            this.updateModel(!this.checked);
+        if (!this.disabled && !this.readonly) {
+            event.preventDefault();
+            this.toggle(event);
+            cb.focus();
         }
     }
 
-    updateModel(value: boolean) {
+    onInputChange(event: Event) {
+        if (!this.readonly) {
+            const inputChecked = (<HTMLInputElement> event.target).checked;
+            this.updateModel(event, inputChecked);
+        }
+    }
+
+    toggle(event: Event) {
+        this.updateModel(event, !this.checked);
+    }
+
+    updateModel(event: Event, value: boolean) {
         this.checked = value;
         this.onModelChange(this.checked);
         this.onChange.emit({
@@ -83,6 +94,7 @@ export class InputSwitch implements ControlValueAccessor {
 
     writeValue(checked: any) : void {
         this.checked = checked;
+        this.cd.markForCheck();
     }
 
     registerOnChange(fn: Function): void {
@@ -95,6 +107,7 @@ export class InputSwitch implements ControlValueAccessor {
     
     setDisabledState(val: boolean): void {
         this.disabled = val;
+        this.cd.markForCheck();
     }
 }
 

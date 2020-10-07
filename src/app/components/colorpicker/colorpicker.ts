@@ -1,32 +1,32 @@
-import { NgModule, Component, ElementRef, Input, Output, OnDestroy, EventEmitter, forwardRef, Renderer2, ViewChild, ChangeDetectorRef } from '@angular/core';
+import { NgModule, Component, ElementRef, Input, Output, OnDestroy, EventEmitter, forwardRef, Renderer2, ViewChild, ChangeDetectorRef, ChangeDetectionStrategy, ViewEncapsulation } from '@angular/core';
 import { trigger, state, style, transition, animate, AnimationEvent } from '@angular/animations';
 import { CommonModule } from '@angular/common';
-import { DomHandler } from '../dom/domhandler';
+import { DomHandler, ConnectedOverlayScrollHandler } from 'primeng/dom';
 import { NG_VALUE_ACCESSOR, ControlValueAccessor } from '@angular/forms';
 
 export const COLORPICKER_VALUE_ACCESSOR: any = {
-  provide: NG_VALUE_ACCESSOR,
-  useExisting: forwardRef(() => ColorPicker),
-  multi: true
+    provide: NG_VALUE_ACCESSOR,
+    useExisting: forwardRef(() => ColorPicker),
+    multi: true
 };
 
 @Component({
     selector: 'p-colorPicker',
     template: `
-        <div [ngStyle]="style" [class]="styleClass" [ngClass]="{'ui-colorpicker ui-widget':true,'ui-colorpicker-overlay':!inline,'ui-colorpicker-dragging':colorDragging||hueDragging}">
-            <input #input type="text" *ngIf="!inline" class="ui-colorpicker-preview ui-inputtext ui-state-default ui-corner-all" readonly="readonly" [ngClass]="{'ui-state-disabled': disabled}"
+        <div #container [ngStyle]="style" [class]="styleClass" [ngClass]="{'p-colorpicker p-component':true,'p-colorpicker-overlay':!inline,'p-colorpicker-dragging':colorDragging||hueDragging}">
+            <input #input type="text" *ngIf="!inline" class="p-colorpicker-preview p-inputtext" readonly="readonly" [ngClass]="{'p-disabled': disabled}"
                 (focus)="onInputFocus()" (click)="onInputClick()" (keydown)="onInputKeydown($event)" [attr.id]="inputId" [attr.tabindex]="tabindex" [disabled]="disabled"
                 [style.backgroundColor]="inputBgColor">
-            <div *ngIf="inline || overlayVisible" [ngClass]="{'ui-colorpicker-panel ui-corner-all': true, 'ui-colorpicker-overlay-panel ui-shadow':!inline, 'ui-state-disabled': disabled}" (click)="onPanelClick()"
-                [@overlayAnimation]="'visible'" [@.disabled]="inline === true" (@overlayAnimation.start)="onOverlayAnimationStart($event)">
-                <div class="ui-colorpicker-content">
-                    <div #colorSelector class="ui-colorpicker-color-selector" (mousedown)="onColorMousedown($event)">
-                        <div class="ui-colorpicker-color">
-                            <div #colorHandle class="ui-colorpicker-color-handle"></div>
+            <div *ngIf="inline || overlayVisible" [ngClass]="{'p-colorpicker-panel': true, 'p-colorpicker-overlay-panel':!inline, 'p-disabled': disabled}" (click)="onPanelClick()"
+                [@overlayAnimation]="{value: 'visible', params: {showTransitionParams: showTransitionOptions, hideTransitionParams: hideTransitionOptions}}" [@.disabled]="inline === true" (@overlayAnimation.start)="onOverlayAnimationStart($event)">
+                <div class="p-colorpicker-content">
+                    <div #colorSelector class="p-colorpicker-color-selector" (mousedown)="onColorMousedown($event)">
+                        <div class="p-colorpicker-color">
+                            <div #colorHandle class="p-colorpicker-color-handle"></div>
                         </div>
                     </div>
-                    <div #hue class="ui-colorpicker-hue" (mousedown)="onHueMousedown($event)">
-                        <div #hueHandle class="ui-colorpicker-hue-handle"></div>
+                    <div #hue class="p-colorpicker-hue" (mousedown)="onHueMousedown($event)">
+                        <div #hueHandle class="p-colorpicker-hue-handle"></div>
                     </div>
                 </div>
             </div>
@@ -34,82 +34,96 @@ export const COLORPICKER_VALUE_ACCESSOR: any = {
     `,
     animations: [
         trigger('overlayAnimation', [
-            state('void', style({
-                transform: 'translateY(5%)',
-                opacity: 0
-            })),
-            state('visible', style({
-                transform: 'translateY(0)',
-                opacity: 1
-            })),
-            transition('void => visible', animate('225ms ease-out')),
-            transition('visible => void', animate('195ms ease-in'))
+            transition(':enter', [
+                style({opacity: 0, transform: 'scaleY(0.8)'}),
+                animate('{{showTransitionParams}}')
+              ]),
+              transition(':leave', [
+                animate('{{hideTransitionParams}}', style({ opacity: 0 }))
+              ])
         ])
     ],
-    providers: [DomHandler,COLORPICKER_VALUE_ACCESSOR]
+    providers: [COLORPICKER_VALUE_ACCESSOR],
+    changeDetection: ChangeDetectionStrategy.OnPush,
+    encapsulation: ViewEncapsulation.None,
+    styleUrls: ['./colorpicker.css']
 })
 export class ColorPicker implements ControlValueAccessor, OnDestroy {
 
     @Input() style: any;
 
     @Input() styleClass: string;
-    
+
     @Input() inline: boolean;
-    
+
     @Input() format: string = 'hex';
-    
+
     @Input() appendTo: string;
-    
+
     @Input() disabled: boolean;
-    
+
     @Input() tabindex: string;
-    
+
     @Input() inputId: string;
-    
+
+    @Input() autoZIndex: boolean = true;
+
+    @Input() baseZIndex: number = 0;
+
+    @Input() showTransitionOptions: string = '.12s cubic-bezier(0, 0, 0.2, 1)';
+
+    @Input() hideTransitionOptions: string = '.1s linear';
+
     @Output() onChange: EventEmitter<any> = new EventEmitter();
-    
+
+    @ViewChild('container') containerViewChild: ElementRef;
+
     @ViewChild('input') inputViewChild: ElementRef;
-    
+
     value: any;
-    
+
     inputBgColor: string;
-    
+
     shown: boolean;
-    
+
     overlayVisible: boolean;
-    
+
     defaultColor: string = 'ff0000';
-    
+
     onModelChange: Function = () => {};
-    
+
     onModelTouched: Function = () => {};
-    
+
     documentClickListener: Function;
-    
+
+    documentResizeListener: any;
+
     documentMousemoveListener: Function;
-    
+
     documentMouseupListener: Function;
-    
+
     documentHueMoveListener: Function;
-                
+
+    scrollHandler: any;
+
     selfClick: boolean;
-    
+
     colorDragging: boolean;
-    
+
     hueDragging: boolean;
 
     overlay: HTMLDivElement;
 
     colorSelectorViewChild: ElementRef;
-    
+
     colorHandleViewChild: ElementRef;
-    
+
     hueViewChild: ElementRef;
-    
+
     hueHandleViewChild: ElementRef;
-                
-    constructor(public el: ElementRef, public domHandler: DomHandler, public renderer: Renderer2, public cd: ChangeDetectorRef) {}
-        
+
+    constructor(public el: ElementRef, public renderer: Renderer2, public cd: ChangeDetectorRef) {}
+
     @ViewChild('colorSelector') set colorSelector(element: ElementRef) {
         this.colorSelectorViewChild = element;
     }
@@ -127,17 +141,17 @@ export class ColorPicker implements ControlValueAccessor, OnDestroy {
     }
 
     onHueMousedown(event: MouseEvent) {
-        if(this.disabled) {
+        if (this.disabled) {
             return;
         }
-        
+
         this.bindDocumentMousemoveListener();
         this.bindDocumentMouseupListener();
-        
+
         this.hueDragging = true;
         this.pickHue(event);
     }
-    
+
     pickHue(event: MouseEvent) {
         let top: number = this.hueViewChild.nativeElement.getBoundingClientRect().top + (window.pageYOffset || document.documentElement.scrollTop || document.body.scrollTop || 0);
         this.value = this.validateHSB({
@@ -145,25 +159,25 @@ export class ColorPicker implements ControlValueAccessor, OnDestroy {
             s: this.value.s,
             b: this.value.b
         });
-        
+
         this.updateColorSelector();
         this.updateUI();
         this.updateModel();
         this.onChange.emit({originalEvent: event, value: this.getValueToUpdate()});
     }
-    
+
     onColorMousedown(event: MouseEvent) {
-        if(this.disabled) {
+        if (this.disabled) {
             return;
         }
-        
+
         this.bindDocumentMousemoveListener();
         this.bindDocumentMouseupListener();
-        
+
         this.colorDragging = true;
         this.pickColor(event);
     }
-    
+
     pickColor(event: MouseEvent) {
         let rect = this.colorSelectorViewChild.nativeElement.getBoundingClientRect();
         let top = rect.top + (window.pageYOffset || document.documentElement.scrollTop || document.body.scrollTop || 0);
@@ -175,46 +189,46 @@ export class ColorPicker implements ControlValueAccessor, OnDestroy {
             s: saturation,
             b: brightness
         });
-        
+
         this.updateUI();
         this.updateModel();
         this.onChange.emit({originalEvent: event, value: this.getValueToUpdate()});
     }
-    
+
     getValueToUpdate() {
         let val: any;
         switch(this.format) {
             case 'hex':
                 val = '#' + this.HSBtoHEX(this.value);
             break;
-            
+
             case 'rgb':
                 val = this.HSBtoRGB(this.value);
             break;
-            
+
             case 'hsb':
                 val = this.value;
             break;
         }
-        
+
         return val;
     }
-    
+
     updateModel(): void {
         this.onModelChange(this.getValueToUpdate());
     }
 
     writeValue(value: any): void {
-        if(value) {
+        if (value) {
             switch(this.format) {
                 case 'hex':
                     this.value = this.HEXtoHSB(value);
                 break;
-                
+
                 case 'rgb':
                     this.value = this.RGBtoHSB(value);
                 break;
-                
+
                 case 'hsb':
                     this.value = value;
                 break;
@@ -223,17 +237,23 @@ export class ColorPicker implements ControlValueAccessor, OnDestroy {
         else {
             this.value = this.HEXtoHSB(this.defaultColor);
         }
-        
+
         this.updateColorSelector();
         this.updateUI();
+        this.cd.markForCheck();
     }
-    
+
     updateColorSelector() {
         if (this.colorSelectorViewChild) {
-            this.colorSelectorViewChild.nativeElement.style.backgroundColor = '#' + this.HSBtoHEX(this.value);
+            const hsb: any = {};
+            hsb.s = 100;
+            hsb.b = 100;
+            hsb.h = this.value.h;
+
+            this.colorSelectorViewChild.nativeElement.style.backgroundColor = '#' + this.HSBtoHEX(hsb);
         }
     }
-        
+
     updateUI() {
         if (this.colorHandleViewChild && this.hueHandleViewChild.nativeElement) {
             this.colorHandleViewChild.nativeElement.style.left =  Math.floor(150 * this.value.s / 100) + 'px';
@@ -244,11 +264,11 @@ export class ColorPicker implements ControlValueAccessor, OnDestroy {
 
         this.inputBgColor = '#' + this.HSBtoHEX(this.value);
     }
-    
+
     onInputFocus() {
         this.onModelTouched();
     }
-    
+
     show() {
         this.overlayVisible = true;
     }
@@ -259,9 +279,13 @@ export class ColorPicker implements ControlValueAccessor, OnDestroy {
                 if (!this.inline) {
                     this.overlay = event.element;
                     this.appendOverlay();
-                    this.overlay.style.zIndex = String(++DomHandler.zindex);
+                    if (this.autoZIndex) {
+                        this.overlay.style.zIndex = String(this.baseZIndex + (++DomHandler.zindex));
+                    }
                     this.alignOverlay();
                     this.bindDocumentClickListener();
+                    this.bindDocumentResizeListener();
+                    this.bindScrollListener();
 
                     this.updateColorSelector();
                     this.updateUI();
@@ -269,17 +293,17 @@ export class ColorPicker implements ControlValueAccessor, OnDestroy {
             break;
 
             case 'void':
-                this.ngOnDestroy();
+                this.onOverlayHide();
             break;
         }
     }
 
     appendOverlay() {
         if (this.appendTo) {
-            if(this.appendTo === 'body')
+            if (this.appendTo === 'body')
                 document.body.appendChild(this.overlay);
             else
-                this.domHandler.appendChild(this.overlay, this.appendTo);
+                DomHandler.appendChild(this.overlay, this.appendTo);
         }
     }
 
@@ -288,30 +312,31 @@ export class ColorPicker implements ControlValueAccessor, OnDestroy {
             this.el.nativeElement.appendChild(this.overlay);
         }
     }
-    
+
     alignOverlay() {
-        if(this.appendTo)
-            this.domHandler.absolutePosition(this.overlay, this.inputViewChild.nativeElement);
+        if (this.appendTo)
+            DomHandler.absolutePosition(this.overlay, this.inputViewChild.nativeElement);
         else
-            this.domHandler.relativePosition(this.overlay, this.inputViewChild.nativeElement);
+            DomHandler.relativePosition(this.overlay, this.inputViewChild.nativeElement);
     }
-    
+
     hide() {
         this.overlayVisible = false;
+        this.cd.markForCheck();
     }
-         
+
     onInputClick() {
         this.selfClick = true;
         this.togglePanel();
     }
-    
+
     togglePanel() {
-        if(!this.overlayVisible)
+        if (!this.overlayVisible)
             this.show();
         else
             this.hide();
     }
-    
+
     onInputKeydown(event: KeyboardEvent) {
         switch(event.which) {
             //space
@@ -319,7 +344,7 @@ export class ColorPicker implements ControlValueAccessor, OnDestroy {
                 this.togglePanel();
                 event.preventDefault();
             break;
-                        
+
             //escape and tab
             case 27:
             case 9:
@@ -327,11 +352,11 @@ export class ColorPicker implements ControlValueAccessor, OnDestroy {
             break;
         }
     }
-        
+
     onPanelClick() {
         this.selfClick = true;
     }
-    
+
     registerOnChange(fn: Function): void {
         this.onModelChange = fn;
     }
@@ -339,56 +364,63 @@ export class ColorPicker implements ControlValueAccessor, OnDestroy {
     registerOnTouched(fn: Function): void {
         this.onModelTouched = fn;
     }
-    
+
     setDisabledState(val: boolean): void {
         this.disabled = val;
+        this.cd.markForCheck();
     }
-    
+
     bindDocumentClickListener() {
-        if(!this.documentClickListener) {
-            this.documentClickListener = this.renderer.listen('document', 'click', () => {
-                if(!this.selfClick) {
+        if (!this.documentClickListener) {
+            const documentTarget: any = this.el ? this.el.nativeElement.ownerDocument : 'document';
+
+            this.documentClickListener = this.renderer.listen(documentTarget, 'click', () => {
+                if (!this.selfClick) {
                     this.overlayVisible = false;
                     this.unbindDocumentClickListener();
                 }
-                
+
                 this.selfClick = false;
                 this.cd.markForCheck();
             });
-        }    
+        }
     }
-    
+
     unbindDocumentClickListener() {
-        if(this.documentClickListener) {
+        if (this.documentClickListener) {
             this.documentClickListener();
             this.documentClickListener = null;
         }
     }
-    
+
     bindDocumentMousemoveListener() {
-        if(!this.documentMousemoveListener) {
-            this.documentMousemoveListener = this.renderer.listen('document', 'mousemove', (event: MouseEvent) => {
-                if(this.colorDragging) {
+        if (!this.documentMousemoveListener) {
+            const documentTarget: any = this.el ? this.el.nativeElement.ownerDocument : 'document';
+
+            this.documentMousemoveListener = this.renderer.listen(documentTarget, 'mousemove', (event: MouseEvent) => {
+                if (this.colorDragging) {
                     this.pickColor(event);
                 }
-                
-                if(this.hueDragging) {
+
+                if (this.hueDragging) {
                     this.pickHue(event);
                 }
             });
         }
     }
-    
+
     unbindDocumentMousemoveListener() {
-        if(this.documentMousemoveListener) {
+        if (this.documentMousemoveListener) {
             this.documentMousemoveListener();
             this.documentMousemoveListener = null;
         }
     }
-    
+
     bindDocumentMouseupListener() {
-        if(!this.documentMouseupListener) {
-            this.documentMouseupListener = this.renderer.listen('document', 'mouseup', () => {
+        if (!this.documentMouseupListener) {
+            const documentTarget: any = this.el ? this.el.nativeElement.ownerDocument : 'document';
+
+            this.documentMouseupListener = this.renderer.listen(documentTarget, 'mouseup', () => {
                 this.colorDragging = false;
                 this.hueDragging = false;
                 this.unbindDocumentMousemoveListener();
@@ -396,11 +428,45 @@ export class ColorPicker implements ControlValueAccessor, OnDestroy {
             });
         }
     }
-    
+
     unbindDocumentMouseupListener() {
-        if(this.documentMouseupListener) {
+        if (this.documentMouseupListener) {
             this.documentMouseupListener();
             this.documentMouseupListener = null;
+        }
+    }
+
+    bindDocumentResizeListener() {
+        this.documentResizeListener = this.onWindowResize.bind(this);
+        window.addEventListener('resize', this.documentResizeListener);
+    }
+
+    unbindDocumentResizeListener() {
+        if (this.documentResizeListener) {
+            window.removeEventListener('resize', this.documentResizeListener);
+            this.documentResizeListener = null;
+        }
+    }
+
+    onWindowResize() {
+        this.hide();
+    }
+
+    bindScrollListener() {
+        if (!this.scrollHandler) {
+            this.scrollHandler = new ConnectedOverlayScrollHandler(this.containerViewChild.nativeElement, () => {
+                if (this.overlayVisible) {
+                    this.hide();
+                }
+            });
+        }
+
+        this.scrollHandler.bindScrollListener();
+    }
+
+    unbindScrollListener() {
+        if (this.scrollHandler) {
+            this.scrollHandler.unbindScrollListener();
         }
     }
 
@@ -411,7 +477,7 @@ export class ColorPicker implements ControlValueAccessor, OnDestroy {
             b: Math.min(100, Math.max(0, hsb.b))
         };
     }
-    
+
     validateRGB(rgb) {
         return {
             r: Math.min(255, Math.max(0, rgb.r)),
@@ -419,7 +485,7 @@ export class ColorPicker implements ControlValueAccessor, OnDestroy {
             b: Math.min(255, Math.max(0, rgb.b))
         };
     }
-    
+
     validateHEX(hex) {
         var len = 6 - hex.length;
         if (len > 0) {
@@ -432,16 +498,16 @@ export class ColorPicker implements ControlValueAccessor, OnDestroy {
         }
         return hex;
     }
-    
+
     HEXtoRGB(hex) {
         let hexValue = parseInt(((hex.indexOf('#') > -1) ? hex.substring(1) : hex), 16);
         return {r: hexValue >> 16, g: (hexValue & 0x00FF00) >> 8, b: (hexValue & 0x0000FF)};
     }
-    
+
     HEXtoHSB(hex) {
         return this.RGBtoHSB(this.HEXtoRGB(hex));
     }
-    
+
     RGBtoHSB(rgb) {
         var hsb = {
             h: 0,
@@ -452,9 +518,6 @@ export class ColorPicker implements ControlValueAccessor, OnDestroy {
         var max = Math.max(rgb.r, rgb.g, rgb.b);
         var delta = max - min;
         hsb.b = max;
-        if (max != 0) {
-            
-        }
         hsb.s = max != 0 ? 255 * delta / max : 0;
         if (hsb.s != 0) {
             if (rgb.r == max) {
@@ -475,61 +538,72 @@ export class ColorPicker implements ControlValueAccessor, OnDestroy {
         hsb.b *= 100/255;
         return hsb;
     }
-    
+
     HSBtoRGB(hsb) {
         var rgb = {
             r: null, g: null, b: null
         };
-        var h = Math.round(hsb.h);
-        var s = Math.round(hsb.s*255/100);
-        var v = Math.round(hsb.b*255/100);
-        if(s == 0) {
+        let h: number = hsb.h;
+        let s: number = hsb.s*255/100;
+        let v: number = hsb.b*255/100;
+        if (s == 0) {
             rgb = {
                 r: v,
                 g: v,
                 b: v
             }
-        } 
+        }
         else {
-            var t1 = v;
-            var t2 = (255-s)*v/255;
-            var t3 = (t1-t2)*(h%60)/60;
-            if(h==360) h = 0;
-            if(h<60) {rgb.r=t1;	rgb.b=t2; rgb.g=t2+t3}
-            else if(h<120) {rgb.g=t1; rgb.b=t2;	rgb.r=t1-t3}
-            else if(h<180) {rgb.g=t1; rgb.r=t2;	rgb.b=t2+t3}
-            else if(h<240) {rgb.b=t1; rgb.r=t2;	rgb.g=t1-t3}
-            else if(h<300) {rgb.b=t1; rgb.g=t2;	rgb.r=t2+t3}
-            else if(h<360) {rgb.r=t1; rgb.g=t2;	rgb.b=t1-t3}
+            let t1: number = v;
+            let t2: number = (255-s)*v/255;
+            let t3: number = (t1-t2)*(h%60)/60;
+            if (h==360) h = 0;
+            if (h<60) {rgb.r=t1;	rgb.b=t2; rgb.g=t2+t3}
+            else if (h<120) {rgb.g=t1; rgb.b=t2;	rgb.r=t1-t3}
+            else if (h<180) {rgb.g=t1; rgb.r=t2;	rgb.b=t2+t3}
+            else if (h<240) {rgb.b=t1; rgb.r=t2;	rgb.g=t1-t3}
+            else if (h<300) {rgb.b=t1; rgb.g=t2;	rgb.r=t2+t3}
+            else if (h<360) {rgb.r=t1; rgb.g=t2;	rgb.b=t1-t3}
             else {rgb.r=0; rgb.g=0;	rgb.b=0}
         }
         return {r:Math.round(rgb.r), g:Math.round(rgb.g), b:Math.round(rgb.b)};
     }
-    
+
     RGBtoHEX(rgb) {
         var hex = [
             rgb.r.toString(16),
             rgb.g.toString(16),
             rgb.b.toString(16)
         ];
-        
+
         for(var key in hex) {
-            if(hex[key].length == 1) {
+            if (hex[key].length == 1) {
                 hex[key] = '0' + hex[key];
             }
-        }        
+        }
 
         return hex.join('');
     }
-    
+
     HSBtoHEX(hsb) {
         return this.RGBtoHEX(this.HSBtoRGB(hsb));
     }
-    
-    ngOnDestroy() {
+
+    onOverlayHide() {
+        this.unbindScrollListener();
+        this.unbindDocumentResizeListener();
         this.unbindDocumentClickListener();
-        this.restoreOverlayAppend();
         this.overlay = null;
+    }
+
+    ngOnDestroy() {
+        if (this.scrollHandler) {
+            this.scrollHandler.destroy();
+            this.scrollHandler = null;
+        }
+
+        this.restoreOverlayAppend();
+        this.onOverlayHide();
     }
 }
 
